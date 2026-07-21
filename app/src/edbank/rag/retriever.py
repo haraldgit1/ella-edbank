@@ -62,16 +62,20 @@ def build_rag_context(results: list[RetrievalResult]) -> str:
     Build the RAG context block for injection into the LLM prompt.
     Only includes results whose record_key starts with 'ORA-' to avoid
     polluting bank-account queries with irrelevant Oracle error excerpts.
+    Each block includes its source filename so the LLM can cite it correctly.
     """
     ora_results = [r for r in results if (r.record_key or "").startswith("ORA-")]
     if not ora_results:
         return ""
-    blocks = [r.content for r in ora_results]
+    blocks = [
+        f"[Quelle: {r.source_name}]\n{r.content}"
+        for r in ora_results
+    ]
     joined = "\n---\n".join(blocks)
     return (
-        "Relevante Einträge aus der lokalen Wissensbasis (ora.csv):\n"
+        "Relevante Einträge aus der lokalen Wissensbasis:\n"
         "---\n"
         f"{joined}\n"
         "---\n"
-        "Bitte stütze deine Antwort auf diese Einträge und nenne die Quelle."
+        "Bitte stütze deine Antwort auf diese Einträge und nenne jeweils die Quelle."
     )

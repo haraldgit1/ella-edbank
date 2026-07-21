@@ -19,6 +19,8 @@ dependencies = [
     "sentence-transformers>=3.0",
     "python-multipart>=0.0.9",
     "anyio>=4.4",
+    "beautifulsoup4>=4.12",
+    "striprtf>=0.0.26",
 ]
 
 [tool.setuptools.packages.find]

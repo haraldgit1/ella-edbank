@@ -5,14 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from edbank.config import settings
 from edbank.db.session import get_db
-from edbank.rag.importer import import_csv
+from edbank.rag.importer import import_document
+from edbank.rag.parsers import SUPPORTED_EXTENSIONS
 from edbank.rag.schemas import ImportResponse, RagStatusResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-ALLOWED_EXTENSIONS = {".csv"}
-ALLOWED_MIME_TYPES = {"text/csv", "text/plain", "application/csv", "application/octet-stream"}
 
 
 @router.post("/api/rag/import", response_model=ImportResponse)
@@ -20,29 +18,34 @@ async def rag_import(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_db),
 ) -> ImportResponse:
-    filename = file.filename or "upload.csv"
+    filename = file.filename or "upload"
 
-    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=422, detail="Nur .csv-Dateien sind erlaubt.")
+    ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
+    if ext not in SUPPORTED_EXTENSIONS:
+        supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+        raise HTTPException(
+            status_code=422,
+            detail=f"Nicht unterstützter Dateityp '{ext}'. Erlaubt: {supported}",
+        )
 
     content = await file.read()
-
     if not content:
         raise HTTPException(status_code=422, detail="Datei ist leer.")
 
-    # Rough MIME / content check: first non-whitespace chars should be printable text
+    # Basic UTF-8 sanity check (binary files are caught here)
     try:
-        sample = content[:512].decode("utf-8")
+        content[:512].decode("utf-8")
     except UnicodeDecodeError:
         raise HTTPException(status_code=422, detail="Datei muss UTF-8-codiert sein.")
 
     try:
-        result = await import_csv(content, filename, session)
+        result = await import_document(content, filename, session)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error("CSV import failed: %s", exc)
+        logger.error("Import failed: %s", exc)
         raise HTTPException(status_code=500, detail="Import fehlgeschlagen.") from exc
 
     return result

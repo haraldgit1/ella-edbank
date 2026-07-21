@@ -76,10 +76,13 @@ async def test_utf8_umlauts():
 
 @pytest.mark.asyncio
 async def test_missing_required_column():
-    content = b"error_code\nORA-00001\n"
+    # A CSV with only 'error_code' but no 'description' column is now handled
+    # in generic mode (no ORA validation). A CSV with both columns but an invalid
+    # ORA code triggers the ORA-specific error.
+    content = b"error_code,description\nERR-001,bad code\n"
     session = _make_session()
     from edbank.rag.importer import import_csv
-    with pytest.raises(ValueError, match="description"):
+    with pytest.raises(ValueError, match="ORA-Code"):
         await import_csv(content, "ora.csv", session)
 
 
