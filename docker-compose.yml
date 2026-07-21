@@ -1,0 +1,102 @@
+services:
+  nginx:
+    build: ./docker/nginx
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      edbank-app:
+        condition: service_healthy
+    networks:
+      - frontend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  edbank-app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - ./data/import:/app/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: docker/mcp-server/Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.connect(('localhost', 8001)); s.close()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:0.8.5-pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      READER_DB_PASSWORD: ${READER_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    # Dev-only: expose port to host for pgAdmin / psql access.
+    # Remove or comment out for production.
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - backend
+      - devtools
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+networks:
+  frontend:
+    name: edbank_frontend
+  backend:
+    name: edbank_backend
+    internal: true
+  devtools:
+    name: edbank_devtools
+    # Not internal — needed for Docker Desktop Mac host port publishing.
+    # Remove this network (and postgres devtools entry + ports) for production.
+
+volumes:
+  postgres_data:
+    name: edbank_postgres_data
