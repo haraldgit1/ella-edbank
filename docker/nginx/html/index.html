@@ -123,15 +123,19 @@
   .clear-btn:hover { background: var(--surface2); color: var(--text); }
 
   /* Context bar */
-  .context-bar { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; font-size: 0.76rem; color: var(--text-dim); flex-wrap: wrap; }
-  .ctx-label { white-space: nowrap; }
+  .context-bar { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; font-size: 0.76rem; color: var(--text-dim); }
+  .ctx-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ctx-label { white-space: nowrap; color: var(--text-dim); }
   .ctx-meter { flex: 0 0 80px; height: 5px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
   .ctx-meter-fill { height: 100%; border-radius: 3px; background: var(--ok); transition: width 0.4s, background 0.4s; }
   .ctx-meter-fill.warn { background: var(--warn); }
   .ctx-meter-fill.crit { background: var(--err); }
-  .ctx-sources { display: flex; gap: 5px; flex-wrap: wrap; margin-left: 6px; }
-  .ctx-source-tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px; font-size: 0.72rem; color: var(--accent); white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; cursor: default; }
-  .ctx-source-tag[title] { cursor: help; }
+  .ctx-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+  .ctx-tag { border-radius: 4px; padding: 1px 7px; font-size: 0.72rem; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+  .ctx-tag.available { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); }
+  .ctx-tag.used { background: #1e3a2a; border: 1px solid #2d5c3f; color: #4ade80; }
+  .ctx-tag.used-mcp { background: #1e2a3a; border: 1px solid #2d3f5c; color: #60a5fa; }
+  .ctx-tag[title] { cursor: help; }
   .ctx-no-sources { font-size: 0.74rem; color: var(--text-dim); font-style: italic; }
 
   .empty-hint { color: var(--text-dim); font-size: 0.9rem; text-align: center; margin: auto; padding: 40px 20px; line-height: 1.8; }
@@ -159,14 +163,21 @@
   </div>
 
   <div class="context-bar" id="context-bar">
-    <span class="ctx-label" id="ctx-turns">Neues Gespräch</span>
-    <div class="ctx-meter" title="Kontext-Auslastung">
-      <div class="ctx-meter-fill" id="ctx-fill" style="width:0%"></div>
+    <div class="ctx-row">
+      <span class="ctx-label">Gespräch:</span>
+      <span class="ctx-label" id="ctx-turns">neu</span>
+      <div class="ctx-meter" title="Kontext-Auslastung des Sprachmodells">
+        <div class="ctx-meter-fill" id="ctx-fill" style="width:0%"></div>
+      </div>
+      <span class="ctx-label" id="ctx-pct" style="min-width:32px"></span>
+      <span style="color:var(--border); margin: 0 2px;">|</span>
+      <span class="ctx-label">Letzte Antwort:</span>
+      <div class="ctx-tags" id="ctx-used"><span class="ctx-no-sources">—</span></div>
     </div>
-    <span class="ctx-label" id="ctx-pct" style="min-width:32px"></span>
-    <span style="color:var(--border)">|</span>
-    <span class="ctx-label" style="color:var(--text-dim)">Geladene Quellen:</span>
-    <div class="ctx-sources" id="ctx-sources"><span class="ctx-no-sources">keine</span></div>
+    <div class="ctx-row">
+      <span class="ctx-label">RAG-Datenbank:</span>
+      <div class="ctx-tags" id="ctx-sources"><span class="ctx-no-sources">keine Dokumente</span></div>
+    </div>
   </div>
 
   <div class="chat-area" id="chat-area">
@@ -279,23 +290,23 @@ setInterval(pollStatus, 15000);
 
 // ── Context bar ───────────────────────────────────────────────────────────
 async function updateContextBar() {
-  // Loaded documents
+  // RAG-Datenbank: alle verfügbaren Dokumente
   try {
     const r = await fetch('/api/rag/documents');
     if (r.ok) {
       const docs = await r.json();
       const container = document.getElementById('ctx-sources');
       if (docs.length === 0) {
-        container.innerHTML = '<span class="ctx-no-sources">keine</span>';
+        container.innerHTML = '<span class="ctx-no-sources">keine Dokumente</span>';
       } else {
         container.innerHTML = docs.map(d =>
-          `<span class="ctx-source-tag" title="${d.source_name} (${d.record_count} Einträge)">${d.source_name}</span>`
+          `<span class="ctx-tag available" title="${d.source_name} · ${d.record_count} Einträge">${d.source_name}</span>`
         ).join('');
       }
     }
   } catch {}
 
-  // Conversation context size
+  // Kontext-Auslastung des Gesprächs
   if (conversationId) {
     try {
       const r = await fetch(`/api/chat/${conversationId}/context`);
@@ -306,15 +317,38 @@ async function updateContextBar() {
         fill.style.width = pct + '%';
         fill.className = 'ctx-meter-fill' + (pct >= 80 ? ' crit' : pct >= 55 ? ' warn' : '');
         document.getElementById('ctx-turns').textContent =
-          `${d.turns} ${d.turns === 1 ? 'Nachricht' : 'Nachrichten'}`;
-        document.getElementById('ctx-pct').textContent = pct + '%';
+          `${d.turns} ${d.turns === 1 ? 'Nachricht' : 'Nachrichten'} · ${pct}%`;
+        document.getElementById('ctx-pct').textContent = '';
       }
     } catch {}
   }
 }
 
+function updateLastUsed(sources, toolCalls) {
+  const container = document.getElementById('ctx-used');
+  const parts = [];
+
+  // RAG-Quellen die in dieser Antwort abgerufen wurden (dedupliziert nach source_name)
+  const usedDocs = [...new Set((sources || []).map(s => s.source_name))];
+  usedDocs.forEach(name => {
+    parts.push(`<span class="ctx-tag used" title="RAG: ${name}">${name}</span>`);
+  });
+
+  // MCP-Tool-Aufrufe
+  (toolCalls || []).forEach(t => {
+    const label = t.status === 'success' ? `MCP: ${t.name}` : `MCP: ${t.name} (${t.status})`;
+    parts.push(`<span class="ctx-tag used-mcp" title="${label}">get_bank_accounts</span>`);
+  });
+
+  if (parts.length === 0) {
+    container.innerHTML = '<span class="ctx-no-sources">nur Modellwissen</span>';
+  } else {
+    container.innerHTML = parts.join('');
+  }
+}
+
 updateContextBar();
-setInterval(updateContextBar, 10000);
+setInterval(updateContextBar, 15000);
 
 // ── Chat ──────────────────────────────────────────────────────────────────
 function clearConversation() {
@@ -322,10 +356,11 @@ function clearConversation() {
     fetch('/api/chat/' + conversationId, { method: 'DELETE' }).catch(() => {});
     conversationId = null;
   }
-  document.getElementById('ctx-turns').textContent = 'Neues Gespräch';
+  document.getElementById('ctx-turns').textContent = 'neu';
   document.getElementById('ctx-pct').textContent = '';
   document.getElementById('ctx-fill').style.width = '0%';
   document.getElementById('ctx-fill').className = 'ctx-meter-fill';
+  document.getElementById('ctx-used').innerHTML = '<span class="ctx-no-sources">—</span>';
   document.getElementById('chat-area').innerHTML = `
     <div class="empty-hint" id="empty-hint">
       <strong>Ella-DemoBank</strong><br>
@@ -445,6 +480,7 @@ async function sendMessage() {
         }
         if (payload.done) {
           conversationId = payload.conversation_id;
+          updateLastUsed(payload.sources, payload.tool_calls);
           updateContextBar();
           // Render sources if any
           if (payload.sources && payload.sources.length > 0) {
