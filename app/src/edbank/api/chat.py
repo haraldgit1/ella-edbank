@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import uuid
 from collections import defaultdict
 from typing import AsyncIterator
@@ -23,6 +24,14 @@ _conversations: dict[str, list[dict]] = defaultdict(list)
 
 MAX_MESSAGE_LENGTH = 4000
 MAX_HISTORY_MESSAGES = 20
+
+# Pattern für eindeutige MCP-Anfragen (IBAN/Konto einer Person).
+# Bei Match wird RAG-Kontext nicht injiziert, damit das MCP-Tool
+# nicht durch Banking-HTML-Treffer konkurriert.
+_MCP_INTENT_RE = re.compile(
+    r"\b(iban|konto|bankverbindung|kontonummer|bic)\b",
+    re.IGNORECASE,
+)
 
 
 class ChatRequest(BaseModel):
@@ -102,12 +111,15 @@ async def chat(req: ChatRequest, session=Depends(get_db)) -> ChatResponse:
     if not user_message:
         raise HTTPException(status_code=422, detail="Nachricht darf nicht leer sein.")
 
-    # RAG
+    # RAG — bei klaren MCP-Anfragen (IBAN/Konto) nicht injizieren,
+    # damit Banking-HTML-Treffer das MCP-Tool nicht verdrängen.
+    mcp_intent = bool(_MCP_INTENT_RE.search(user_message))
     rag_results: list[RetrievalResult] = []
-    try:
-        rag_results = await rag_retriever.search(user_message, session)
-    except Exception as exc:
-        logger.warning("RAG search failed: %s", exc)
+    if not mcp_intent:
+        try:
+            rag_results = await rag_retriever.search(user_message, session)
+        except Exception as exc:
+            logger.warning("RAG search failed: %s", exc)
 
     rag_context = rag_retriever.build_rag_context(rag_results) if rag_results else None
     messages = _build_initial_messages(conversation_id, user_message, rag_context)
@@ -219,11 +231,13 @@ async def chat_stream(req: ChatRequest, session=Depends(get_db)) -> StreamingRes
     if not user_message:
         raise HTTPException(status_code=422, detail="Nachricht darf nicht leer sein.")
 
+    mcp_intent = bool(_MCP_INTENT_RE.search(user_message))
     rag_results: list[RetrievalResult] = []
-    try:
-        rag_results = await rag_retriever.search(user_message, session)
-    except Exception as exc:
-        logger.warning("RAG search failed: %s", exc)
+    if not mcp_intent:
+        try:
+            rag_results = await rag_retriever.search(user_message, session)
+        except Exception as exc:
+            logger.warning("RAG search failed: %s", exc)
 
     return StreamingResponse(
         _stream_with_tool_loop(conversation_id, user_message, rag_results),
