@@ -1,5 +1,9 @@
 import logging
+from urllib.parse import urlparse
+
+import httpx
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +15,13 @@ from edbank.rag.schemas import ImportResponse, RagStatusResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_URL_FETCH_TIMEOUT = 15  # seconds
+_MAX_URL_CONTENT_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+class UrlImportRequest(BaseModel):
+    url: str
 
 
 @router.post("/api/rag/import", response_model=ImportResponse)
@@ -32,7 +43,6 @@ async def rag_import(
     if not content:
         raise HTTPException(status_code=422, detail="Datei ist leer.")
 
-    # Basic UTF-8 sanity check (binary files are caught here)
     try:
         content[:512].decode("utf-8")
     except UnicodeDecodeError:
@@ -46,6 +56,61 @@ async def rag_import(
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Import failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Import fehlgeschlagen.") from exc
+
+    return result
+
+
+@router.post("/api/rag/import-url", response_model=ImportResponse)
+async def rag_import_url(
+    req: UrlImportRequest,
+    session: AsyncSession = Depends(get_db),
+) -> ImportResponse:
+    url = req.url.strip()
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=422, detail="Ungültige URL. Nur http:// und https:// sind erlaubt.")
+
+    # Derive a readable filename from the URL (used as source_name)
+    path = parsed.path.rstrip("/")
+    filename = path.split("/")[-1] if path else parsed.netloc
+    if not filename:
+        filename = parsed.netloc
+    # Ensure .html extension so the HTML parser is selected
+    if "." not in filename.split("/")[-1]:
+        filename = filename + ".html"
+    elif not filename.lower().endswith((".html", ".htm")):
+        filename = filename + ".html"
+
+    logger.info("url_import url=%s filename=%s", url, filename)
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=_URL_FETCH_TIMEOUT) as client:
+            response = await client.get(url, headers={"User-Agent": "Ella-DemoBank/1.0 RAG-Importer"})
+            response.raise_for_status()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail=f"Timeout beim Abrufen der URL (>{_URL_FETCH_TIMEOUT}s).")
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=422, detail=f"HTTP-Fehler beim Abrufen: {exc.response.status_code}.")
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"URL konnte nicht abgerufen werden: {exc}") from exc
+
+    content = response.content
+    if len(content) > _MAX_URL_CONTENT_BYTES:
+        raise HTTPException(status_code=422, detail="Seite zu groß (max. 5 MB).")
+
+    if not content:
+        raise HTTPException(status_code=422, detail="Die URL lieferte keinen Inhalt.")
+
+    try:
+        result = await import_document(content, filename, session)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("URL import failed: %s", exc)
         raise HTTPException(status_code=500, detail="Import fehlgeschlagen.") from exc
 
     return result
