@@ -9,6 +9,7 @@ from edbank.rag.parsers.csv_parser import parse as parse_csv
 from edbank.rag.parsers.plaintext_parser import parse as parse_plaintext
 from edbank.rag.parsers.rtf_parser import parse as parse_rtf
 from edbank.rag.parsers.html_parser import parse as parse_html
+from edbank.rag.parsers.pdf_parser import parse as parse_pdf
 
 _PARSERS = {
     ".csv":  parse_csv,
@@ -17,6 +18,7 @@ _PARSERS = {
     ".rtf":  parse_rtf,
     ".html": parse_html,
     ".htm":  parse_html,
+    ".pdf":  parse_pdf,
 }
 
 SUPPORTED_EXTENSIONS = set(_PARSERS.keys())

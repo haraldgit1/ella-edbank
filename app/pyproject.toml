@@ -21,6 +21,7 @@ dependencies = [
     "anyio>=4.4",
     "beautifulsoup4>=4.12",
     "striprtf>=0.0.26",
+    "pypdf>=4.0",
 ]
 
 [tool.setuptools.packages.find]
