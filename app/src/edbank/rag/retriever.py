@@ -60,16 +60,14 @@ async def search(
 def build_rag_context(results: list[RetrievalResult]) -> str:
     """
     Build the RAG context block for injection into the LLM prompt.
-    Only includes results whose record_key starts with 'ORA-' to avoid
-    polluting bank-account queries with irrelevant Oracle error excerpts.
+    Includes all search results (min_score threshold already ensures relevance).
     Each block includes its source filename so the LLM can cite it correctly.
     """
-    ora_results = [r for r in results if (r.record_key or "").startswith("ORA-")]
-    if not ora_results:
+    if not results:
         return ""
     blocks = [
         f"[Quelle: {r.source_name}]\n{r.content}"
-        for r in ora_results
+        for r in results
     ]
     joined = "\n---\n".join(blocks)
     return (
@@ -77,5 +75,5 @@ def build_rag_context(results: list[RetrievalResult]) -> str:
         "---\n"
         f"{joined}\n"
         "---\n"
-        "Bitte stütze deine Antwort auf diese Einträge und nenne jeweils die Quelle."
+        "Bitte stütze deine Antwort ausschließlich auf diese Einträge und nenne jeweils die Quelle."
     )
