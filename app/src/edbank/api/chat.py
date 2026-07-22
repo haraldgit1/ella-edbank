@@ -232,6 +232,24 @@ async def chat_stream(req: ChatRequest, session=Depends(get_db)) -> StreamingRes
     )
 
 
+@router.get("/api/chat/{conversation_id}/context")
+async def conversation_context(conversation_id: str) -> dict:
+    msgs = _conversations.get(conversation_id, [])
+    turns = len(msgs) // 2  # user + assistant pairs
+    # Rough token estimate: ~4 chars per token
+    char_count = sum(len(m.get("content", "")) for m in msgs) + len(SYSTEM_PROMPT)
+    token_estimate = char_count // 4
+    context_limit = settings.llm_context_tokens
+    return {
+        "conversation_id": conversation_id,
+        "turns": turns,
+        "messages": len(msgs),
+        "token_estimate": token_estimate,
+        "context_limit": context_limit,
+        "context_pct": min(100, round(token_estimate / context_limit * 100)),
+    }
+
+
 @router.delete("/api/chat/{conversation_id}")
 async def clear_conversation(conversation_id: str) -> dict:
     _conversations.pop(conversation_id, None)

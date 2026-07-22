@@ -122,6 +122,18 @@
   .clear-btn { background: none; border: none; color: var(--text-dim); font-size: 0.78rem; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
   .clear-btn:hover { background: var(--surface2); color: var(--text); }
 
+  /* Context bar */
+  .context-bar { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; font-size: 0.76rem; color: var(--text-dim); flex-wrap: wrap; }
+  .ctx-label { white-space: nowrap; }
+  .ctx-meter { flex: 0 0 80px; height: 5px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .ctx-meter-fill { height: 100%; border-radius: 3px; background: var(--ok); transition: width 0.4s, background 0.4s; }
+  .ctx-meter-fill.warn { background: var(--warn); }
+  .ctx-meter-fill.crit { background: var(--err); }
+  .ctx-sources { display: flex; gap: 5px; flex-wrap: wrap; margin-left: 6px; }
+  .ctx-source-tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px; font-size: 0.72rem; color: var(--accent); white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+  .ctx-source-tag[title] { cursor: help; }
+  .ctx-no-sources { font-size: 0.74rem; color: var(--text-dim); font-style: italic; }
+
   .empty-hint { color: var(--text-dim); font-size: 0.9rem; text-align: center; margin: auto; padding: 40px 20px; line-height: 1.8; }
   .empty-hint strong { color: var(--text); }
 </style>
@@ -144,6 +156,17 @@
     <div class="status-item"><div class="dot" id="dot-mcp"></div><span id="label-mcp">MCP …</span></div>
     <div class="status-item"><div class="dot" id="dot-pg"></div><span id="label-pg">PostgreSQL …</span></div>
     <div class="status-item" style="margin-left:auto; font-size:0.75rem; color:var(--text-dim);">lokal</div>
+  </div>
+
+  <div class="context-bar" id="context-bar">
+    <span class="ctx-label" id="ctx-turns">Neues Gespräch</span>
+    <div class="ctx-meter" title="Kontext-Auslastung">
+      <div class="ctx-meter-fill" id="ctx-fill" style="width:0%"></div>
+    </div>
+    <span class="ctx-label" id="ctx-pct" style="min-width:32px"></span>
+    <span style="color:var(--border)">|</span>
+    <span class="ctx-label" style="color:var(--text-dim)">Geladene Quellen:</span>
+    <div class="ctx-sources" id="ctx-sources"><span class="ctx-no-sources">keine</span></div>
   </div>
 
   <div class="chat-area" id="chat-area">
@@ -254,12 +277,55 @@ function setDot(key, ok, detail) {
 pollStatus();
 setInterval(pollStatus, 15000);
 
+// ── Context bar ───────────────────────────────────────────────────────────
+async function updateContextBar() {
+  // Loaded documents
+  try {
+    const r = await fetch('/api/rag/documents');
+    if (r.ok) {
+      const docs = await r.json();
+      const container = document.getElementById('ctx-sources');
+      if (docs.length === 0) {
+        container.innerHTML = '<span class="ctx-no-sources">keine</span>';
+      } else {
+        container.innerHTML = docs.map(d =>
+          `<span class="ctx-source-tag" title="${d.source_name} (${d.record_count} Einträge)">${d.source_name}</span>`
+        ).join('');
+      }
+    }
+  } catch {}
+
+  // Conversation context size
+  if (conversationId) {
+    try {
+      const r = await fetch(`/api/chat/${conversationId}/context`);
+      if (r.ok) {
+        const d = await r.json();
+        const pct = d.context_pct;
+        const fill = document.getElementById('ctx-fill');
+        fill.style.width = pct + '%';
+        fill.className = 'ctx-meter-fill' + (pct >= 80 ? ' crit' : pct >= 55 ? ' warn' : '');
+        document.getElementById('ctx-turns').textContent =
+          `${d.turns} ${d.turns === 1 ? 'Nachricht' : 'Nachrichten'}`;
+        document.getElementById('ctx-pct').textContent = pct + '%';
+      }
+    } catch {}
+  }
+}
+
+updateContextBar();
+setInterval(updateContextBar, 10000);
+
 // ── Chat ──────────────────────────────────────────────────────────────────
 function clearConversation() {
   if (conversationId) {
     fetch('/api/chat/' + conversationId, { method: 'DELETE' }).catch(() => {});
     conversationId = null;
   }
+  document.getElementById('ctx-turns').textContent = 'Neues Gespräch';
+  document.getElementById('ctx-pct').textContent = '';
+  document.getElementById('ctx-fill').style.width = '0%';
+  document.getElementById('ctx-fill').className = 'ctx-meter-fill';
   document.getElementById('chat-area').innerHTML = `
     <div class="empty-hint" id="empty-hint">
       <strong>Ella-DemoBank</strong><br>
@@ -379,6 +445,7 @@ async function sendMessage() {
         }
         if (payload.done) {
           conversationId = payload.conversation_id;
+          updateContextBar();
           // Render sources if any
           if (payload.sources && payload.sources.length > 0) {
             const src = document.createElement('div');
@@ -449,6 +516,7 @@ async function importDocument() {
       _setImportStatus(`✓ ${d.imported_records} Einträge importiert (${d.source_name})`, true);
       fileInput.value = '';
       fetchRagStatus();
+      updateContextBar();
     } else {
       _setImportStatus('✗ ' + (d.detail || JSON.stringify(d)), false);
     }
@@ -483,6 +551,7 @@ async function importUrl() {
       _setImportStatus(`✓ ${d.imported_records} Einträge importiert (${d.source_name})`, true);
       urlInput.value = '';
       fetchRagStatus();
+      updateContextBar();
     } else {
       _setImportStatus('✗ ' + (d.detail || JSON.stringify(d)), false);
     }

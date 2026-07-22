@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from urllib.parse import urlparse
 
 import httpx
@@ -11,7 +12,7 @@ from edbank.config import settings
 from edbank.db.session import get_db
 from edbank.rag.importer import import_document
 from edbank.rag.parsers import SUPPORTED_EXTENSIONS
-from edbank.rag.schemas import ImportResponse, RagStatusResponse
+from edbank.rag.schemas import ImportResponse, RagStatusResponse, DocumentInfo
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -114,6 +115,27 @@ async def rag_import_url(
         raise HTTPException(status_code=500, detail="Import fehlgeschlagen.") from exc
 
     return result
+
+
+@router.get("/api/rag/documents", response_model=list[DocumentInfo])
+async def rag_documents(session: AsyncSession = Depends(get_db)) -> list[DocumentInfo]:
+    try:
+        rows = await session.execute(text("""
+            SELECT source_name, record_count, imported_at
+            FROM rag.document
+            WHERE status = 'ready'
+            ORDER BY imported_at DESC
+        """))
+        return [
+            DocumentInfo(
+                source_name=r.source_name,
+                record_count=r.record_count,
+                imported_at=r.imported_at.isoformat() if r.imported_at else None,
+            )
+            for r in rows.fetchall()
+        ]
+    except Exception:
+        return []
 
 
 @router.get("/api/rag/status", response_model=RagStatusResponse)

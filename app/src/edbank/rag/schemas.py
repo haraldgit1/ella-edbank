@@ -1,6 +1,12 @@
 from pydantic import BaseModel
 
 
+class DocumentInfo(BaseModel):
+    source_name: str
+    record_count: int
+    imported_at: str | None = None
+
+
 class ImportResponse(BaseModel):
     document_id: str
     source_name: str
