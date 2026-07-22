@@ -44,10 +44,12 @@ async def rag_import(
     if not content:
         raise HTTPException(status_code=422, detail="Datei ist leer.")
 
-    try:
-        content[:512].decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=422, detail="Datei muss UTF-8-codiert sein.")
+    _BINARY_EXTENSIONS = {".pdf"}
+    if ext not in _BINARY_EXTENSIONS:
+        try:
+            content[:512].decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=422, detail="Datei muss UTF-8-codiert sein.")
 
     try:
         result = await import_document(content, filename, session)
