@@ -456,13 +456,18 @@ async function sendMessage() {
       return;
     }
 
-    removeTyping();
-    const { bubble } = appendMessage('bot', '', { id: msgId });
-
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let fullText = '';
+    let bubble = null;
+
+    const ensureBubble = () => {
+      if (!bubble) {
+        removeTyping();
+        bubble = appendMessage('bot', '', { id: msgId }).bubble;
+      }
+    };
 
     while (true) {
       const { done, value } = await reader.read();
@@ -475,10 +480,12 @@ async function sendMessage() {
         if (!line.startsWith('data: ')) continue;
         const payload = JSON.parse(line.slice(6));
         if (payload.error) {
+          ensureBubble();
           bubble.innerHTML = renderMarkdown('**Fehler:** ' + payload.error);
           break;
         }
         if (payload.done) {
+          ensureBubble();
           conversationId = payload.conversation_id;
           updateLastUsed(payload.sources, payload.tool_calls);
           updateContextBar();
@@ -498,6 +505,7 @@ async function sendMessage() {
             bubble.appendChild(tc);
           }
         } else if (payload.delta) {
+          ensureBubble();
           fullText += payload.delta;
           bubble.innerHTML = renderMarkdown(fullText);
           document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
