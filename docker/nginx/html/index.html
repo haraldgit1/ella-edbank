@@ -140,6 +140,32 @@
 
   .empty-hint { color: var(--text-dim); font-size: 0.9rem; text-align: center; margin: auto; padding: 40px 20px; line-height: 1.8; }
   .empty-hint strong { color: var(--text); }
+
+  /* Print button */
+  .print-btn { background: none; border: none; color: var(--text-dim); font-size: 0.78rem; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+  .print-btn:hover { background: var(--surface2); color: var(--text); }
+
+  /* Print styles */
+  @media print {
+    @page { margin: 15mm; }
+    html, body { background: #fff; color: #000; height: auto; }
+    .app { height: auto; max-width: 100%; padding: 0; }
+    .chat-area { overflow: visible; height: auto; flex: none; }
+    .dot { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    .bubble { max-width: 100%; }
+    .msg.user .bubble { background: #dde3f5; border: none; }
+    .msg.bot .bubble { background: #f0f1f6; border: 1px solid #ccc; }
+    .sources { color: #555; }
+    .sources span { color: #2255aa; }
+    .ctx-tag.used { background: #d4f0e0; border-color: #7bcca0; color: #1a5c35; }
+    .ctx-tag.used-mcp { background: #d4e4f0; border-color: #7bacc0; color: #1a3560; }
+    .ctx-tag.available { background: #eee; border-color: #ccc; color: #555; }
+    .ctx-meter { background: #ddd; }
+    .send-btn, .import-area, .print-btn, .clear-btn { display: none; }
+    .typing { display: none; }
+    .tool-trace details { display: block; }
+    .tool-trace summary::marker { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -149,6 +175,7 @@
       <h1>Ella-DemoBank <span class="beta-badge">PoC</span></h1>
     </div>
     <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+      <button class="print-btn" onclick="window.print()">🖨 Drucken</button>
       <button class="clear-btn" onclick="clearConversation()">Verlauf löschen</button>
     </div>
   </header>
